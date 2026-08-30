@@ -12,23 +12,13 @@ FROM eclipse-temurin:21-jdk AS builder
 
 WORKDIR /build
 
-# Copy Maven wrapper and POM first for dependency caching
-COPY mvnw ./
-COPY .mvn .mvn
-COPY pom.xml ./
-COPY backend/pom.xml backend/pom.xml
-COPY backend/framework/pom.xml backend/framework/
-COPY backend/crm/pom.xml backend/crm/
-COPY backend/app/pom.xml backend/app/
+# Copy full project context (Maven parent POM requires frontend module to exist)
+# .dockerignore excludes node_modules, dist, .idea etc.
+COPY . .
 
-# Download dependencies (cached layer)
-RUN ./mvnw dependency:resolve -pl backend/app -am -DskipTests -Dmaven.javadoc.skip=true || true
-
-# Copy source code
-COPY backend backend
-
-# Build the application
-RUN ./mvnw clean package -DskipTests -pl '!frontend' && \
+# Build backend only (exclude frontend module via -pl)
+RUN chmod +x mvnw && \
+    ./mvnw clean package -DskipTests -pl '!frontend' -Dmaven.javadoc.skip=true && \
     mkdir -p backend/app/target/dependency && \
     cd backend/app/target/dependency && \
     jar -xf ../*.jar
