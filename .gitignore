@@ -78,3 +78,4 @@ qywx.json
 
 # Claude Code
 .claude
+docker/.env
