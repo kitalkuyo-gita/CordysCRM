@@ -99,6 +99,19 @@ EXPOSE 8081
 ENTRYPOINT ["sh", "-c", "\
   echo '[INFO] Initializing directories...' && \
   bash /shells/init-directories.sh && \
+  echo '[INFO] Patching config with Docker environment...' && \
+  CONF=/opt/cordys/conf/cordys-crm.properties && \
+  if [ -f \"$CONF\" ]; then \
+    sed -i 's|mysql.embedded.enabled=true|mysql.embedded.enabled=false|g' \"$CONF\" && \
+    sed -i 's|redis.embedded.enabled=true|redis.embedded.enabled=false|g' \"$CONF\" && \
+    sed -i 's|mcp.embedded.enabled=true|mcp.embedded.enabled=false|g' \"$CONF\" && \
+    sed -i 's|cockpit.embedded.enabled=true|cockpit.embedded.enabled=false|g' \"$CONF\" && \
+    sed -i 's|jdbc:mysql://127.0.0.1:3306|jdbc:mysql://${MYSQL_HOST:-cordys-mysql}:${MYSQL_PORT:-3306}|g' \"$CONF\" && \
+    sed -i \"s|spring.datasource.password=.*|spring.datasource.password=${MYSQL_PASSWORD:-CordysCRM@mysql}|g\" \"$CONF\" && \
+    sed -i \"s|spring.data.redis.host=.*|spring.data.redis.host=${REDIS_HOST:-cordys-redis}|g\" \"$CONF\" && \
+    sed -i \"s|spring.data.redis.password=.*|spring.data.redis.password=${REDIS_PASSWORD:-CordysCRM@redis}|g\" \"$CONF\" && \
+    echo '[INFO] Config patched successfully.'; \
+  fi && \
   echo '[INFO] Waiting for MySQL at ${MYSQL_HOST:-cordys-mysql}:${MYSQL_PORT:-3306}...' && \
   until nc -z ${MYSQL_HOST:-cordys-mysql} ${MYSQL_PORT:-3306} 2>/dev/null; do \
     echo '[INFO] MySQL not ready, retrying in 3s...'; \
