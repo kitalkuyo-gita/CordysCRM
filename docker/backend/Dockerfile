@@ -32,7 +32,7 @@ LABEL maintainer="CordysCRM Docker <support@cordyscrm.com>"
 LABEL description="CordysCRM Backend - Spring Boot Production Image"
 
 # Install curl for health checks and tzdata for timezone
-RUN apk add --no-cache curl tzdata && \
+RUN apk add --no-cache curl tzdata bash && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     apk del tzdata
