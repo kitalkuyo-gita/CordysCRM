@@ -22,8 +22,8 @@ COPY frontend/packages/web/package.json ./packages/web/
 COPY frontend/packages/mobile/package.json ./packages/mobile/
 COPY frontend/package.json ./
 
-# Install dependencies (with network retry for CI stability)
-RUN pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+# Install dependencies (resolve fresh to avoid stale workspace references)
+RUN rm -f pnpm-lock.yaml && pnpm install --no-frozen-lockfile
 
 # Copy source code
 COPY frontend/ ./
