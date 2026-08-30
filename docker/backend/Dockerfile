@@ -95,10 +95,23 @@ WORKDIR /app
 
 EXPOSE 8081
 
-# Direct Java startup (no dependency on base image's /deployments/run-java.sh)
+# Direct Java startup with MySQL/Redis readiness check
 ENTRYPOINT ["sh", "-c", "\
   echo '[INFO] Initializing directories...' && \
   bash /shells/init-directories.sh && \
+  echo '[INFO] Waiting for MySQL at ${MYSQL_HOST:-cordys-mysql}:${MYSQL_PORT:-3306}...' && \
+  until sh -c 'echo > /dev/tcp/${MYSQL_HOST:-cordys-mysql}/${MYSQL_PORT:-3306}' 2>/dev/null; do \
+    echo '[INFO] MySQL not ready, retrying in 3s...'; \
+    sleep 3; \
+  done && \
+  echo '[INFO] MySQL is reachable. Waiting 5s for full initialization...' && \
+  sleep 5 && \
+  echo '[INFO] Waiting for Redis at ${REDIS_HOST:-cordys-redis}:${REDIS_PORT:-6379}...' && \
+  until sh -c 'echo > /dev/tcp/${REDIS_HOST:-cordys-redis}/${REDIS_PORT:-6379}' 2>/dev/null; do \
+    echo '[INFO] Redis not ready, retrying in 3s...'; \
+    sleep 3; \
+  done && \
+  echo '[INFO] Redis is reachable.' && \
   echo '[INFO] Starting CordysCRM Backend (version: ${CRM_VERSION})...' && \
   exec java \
     -cp ${JAVA_CLASSPATH} \
