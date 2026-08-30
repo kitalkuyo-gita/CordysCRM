@@ -1,0 +1,303 @@
+# ============================================================================
+# CordysCRM Full Stack - Docker Compose (Root)
+# ============================================================================
+# All-in-one deployment: Frontend + Backend + MySQL + Redis + Monitoring
+# Usage:
+#   Production:  docker compose -f docker/docker-compose.yaml up -d
+#   Development: docker compose -f docker/docker-compose.yaml --profile dev up -d
+#   With monitor: docker compose -f docker/docker-compose.yaml --profile monitor up -d
+# ============================================================================
+
+services:
+  # =========================================================================
+  # INFRASTRUCTURE LAYER
+  # =========================================================================
+
+  # -------------------------------------------------------------------------
+  # MySQL 8.0 - Primary Database
+  # -------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: cordys-mysql
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cordys-crm}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/config/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    networks:
+      - cordys-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # -------------------------------------------------------------------------
+  # Redis 7 - Session & Cache Store
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cordys-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-CordysCRM@redis}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+    volumes:
+      - redis_data:/data
+    networks:
+      - cordys-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-CordysCRM@redis}", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # =========================================================================
+  # APPLICATION LAYER
+  # =========================================================================
+
+  # -------------------------------------------------------------------------
+  # CordysCRM Backend - Spring Boot Application
+  # -------------------------------------------------------------------------
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    container_name: cordys-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8081}:8081"
+    environment:
+      # Database
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=cordys-crm
+      - MYSQL_USERNAME=root
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-CordysCRM@redis}
+      # Application
+      - CORDYS_SECRET_KEY=${CORDYS_SECRET_KEY:-9a9rdqPlTqhpZzkq}
+      - SPRING_PROFILES_ACTIVE=docker
+      - TZ=Asia/Shanghai
+      # JVM Tuning
+      - JAVA_OPTIONS=-Dfile.encoding=utf-8 -Djava.awt.headless=true -XX:+UseG1GC -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0 -XX:+UseStringDeduplication -XX:+ParallelRefProcEnabled --add-opens java.base/jdk.internal.loader=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED
+      # Version
+      - CRM_VERSION=${CRM_VERSION:-latest}
+    volumes:
+      - cordys_files:/opt/cordys/data/files
+      - cordys_logs:/opt/cordys/logs
+    networks:
+      - cordys-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/front/account/info"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "2.0"
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
+
+  # -------------------------------------------------------------------------
+  # CordysCRM Frontend - Nginx Reverse Proxy
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend/Dockerfile
+    container_name: cordys-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - cordys-net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "30m"
+        max-file: "5"
+
+  # =========================================================================
+  # MONITORING LAYER (Optional)
+  # =========================================================================
+
+  # -------------------------------------------------------------------------
+  # Prometheus - Metrics Collection
+  # -------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cordys-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - cordys-net
+    profiles:
+      - monitor
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # -------------------------------------------------------------------------
+  # Grafana - Dashboard Visualization
+  # -------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cordys-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-cordys-crm}
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - cordys-net
+    depends_on:
+      - prometheus
+    profiles:
+      - monitor
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+
+  # -------------------------------------------------------------------------
+  # phpMyAdmin - Database Management (dev only)
+  # -------------------------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: cordys-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PHPMYADMIN_PORT:-8083}:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}
+      UPLOAD_LIMIT: 1024M
+    networks:
+      - cordys-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - dev
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.25"
+
+# ---------------------------------------------------------------------------
+# Volumes (Persistent Data)
+# ---------------------------------------------------------------------------
+volumes:
+  mysql_data:
+    driver: local
+    name: cordys-mysql-data
+  redis_data:
+    driver: local
+    name: cordys-redis-data
+  cordys_files:
+    driver: local
+    name: cordys-files
+  cordys_logs:
+    driver: local
+    name: cordys-logs
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  cordys-net:
+    driver: bridge
+    name: cordys-network

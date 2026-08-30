@@ -1,0 +1,30 @@
+# ============================================================================
+# Prometheus Configuration for CordysCRM
+# ============================================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'cordys-backend'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['cordys-backend:8081']
+        labels:
+          app: 'cordys-crm'
+          tier: 'backend'
+
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['cordys-mysql:3306']
+        labels:
+          app: 'cordys-crm'
+          tier: 'database'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['cordys-redis:6379']
+        labels:
+          app: 'cordys-crm'
+          tier: 'cache'

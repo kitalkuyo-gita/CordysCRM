@@ -1,0 +1,132 @@
+# ============================================================================
+# CordysCRM Database Layer - Docker Compose
+# ============================================================================
+# Services: MySQL 8.0, Redis 7, phpMyAdmin (optional)
+# Usage: docker compose -f docker/database/docker-compose.yaml up -d
+# ============================================================================
+
+services:
+  # -------------------------------------------------------------------------
+  # MySQL 8.0 - Primary Database
+  # -------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: cordys-mysql
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cordys-crm}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./config/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ./init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - cordys-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.0"
+        reservations:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # -------------------------------------------------------------------------
+  # Redis 7 - Session & Cache Store
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: cordys-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-CordysCRM@redis}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --tcp-backlog 511
+      --timeout 0
+      --tcp-keepalive 300
+    volumes:
+      - redis_data:/data
+    networks:
+      - cordys-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-CordysCRM@redis}", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: "0.5"
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # -------------------------------------------------------------------------
+  # phpMyAdmin - Database Management UI (Optional, dev only)
+  # -------------------------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: cordys-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PHPMYADMIN_PORT:-8083}:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}
+      UPLOAD_LIMIT: 1024M
+    networks:
+      - cordys-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+    profiles:
+      - dev
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  mysql_data:
+    driver: local
+    name: cordys-mysql-data
+  redis_data:
+    driver: local
+    name: cordys-redis-data
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  cordys-net:
+    driver: bridge
+    name: cordys-network
