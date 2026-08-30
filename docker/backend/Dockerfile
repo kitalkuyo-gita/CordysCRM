@@ -41,21 +41,31 @@ RUN apk add --no-cache curl tzdata && \
 RUN addgroup -g 1001 -S cordys && \
     adduser -u 1001 -S cordys -G cordys
 
-# Create application directories
-RUN mkdir -p /app /opt/cordys/conf /opt/cordys/data/files /opt/cordys/logs/cordys-crm && \
-    chown -R cordys:cordys /app /opt/cordys
+# Create application directories (all writable by cordys user)
+RUN mkdir -p /app/lib \
+             /app/META-INF \
+             /opt/cordys/conf \
+             /opt/cordys/conf/mysql \
+             /opt/cordys/conf/redis \
+             /opt/cordys/data/files \
+             /opt/cordys/data/mysql \
+             /opt/cordys/data/redis \
+             /opt/cordys/logs/cordys-crm \
+             /opt/cordys/logs/mcp-server \
+             /run/cordys && \
+    chown -R cordys:cordys /app /opt/cordys /run/cordys
 
 # Copy built artifacts from builder
-COPY --from=builder /build/backend/app/target/dependency/BOOT-INF/lib /app/lib
-COPY --from=builder /build/backend/app/target/dependency/META-INF /app/META-INF
-COPY --from=builder /build/backend/app/target/dependency/BOOT-INF/classes /app
+COPY --from=builder --chown=cordys:cordys /build/backend/app/target/dependency/BOOT-INF/lib /app/lib
+COPY --from=builder --chown=cordys:cordys /build/backend/app/target/dependency/META-INF /app/META-INF
+COPY --from=builder --chown=cordys:cordys /build/backend/app/target/dependency/BOOT-INF/classes /app
 
 # Copy application configuration templates
-COPY installer/conf/cordys-crm.properties /installer/conf/cordys-crm.properties
-COPY installer/conf/mysql/my.cnf /installer/conf/mysql/my.cnf
-COPY installer/conf/redis/redis.conf /installer/conf/redis/redis.conf
+COPY --chown=cordys:cordys installer/conf/cordys-crm.properties /installer/conf/cordys-crm.properties
+COPY --chown=cordys:cordys installer/conf/mysql/my.cnf /installer/conf/mysql/my.cnf
+COPY --chown=cordys:cordys installer/conf/redis/redis.conf /installer/conf/redis/redis.conf
 
-# Copy shell scripts
+# Copy shell scripts and make executable
 COPY installer/shells /shells
 RUN chmod +x /shells/*.sh
 
@@ -81,7 +91,17 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
 # Switch to non-root user
 USER cordys
 
+WORKDIR /app
+
 EXPOSE 8081
 
-# Default entrypoint
-ENTRYPOINT ["sh", "/shells/start-cordys.sh"]
+# Direct Java startup (no dependency on base image's /deployments/run-java.sh)
+ENTRYPOINT ["sh", "-c", "\
+  echo '[INFO] Initializing directories...' && \
+  bash /shells/init-directories.sh && \
+  echo '[INFO] Starting CordysCRM Backend (version: ${CRM_VERSION})...' && \
+  exec java \
+    -cp ${JAVA_CLASSPATH} \
+    ${JAVA_OPTIONS} \
+    ${JAVA_MAIN_CLASS} \
+    \"$@\"", "--"]
