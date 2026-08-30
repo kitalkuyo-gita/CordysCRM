@@ -173,7 +173,7 @@ services:
       - cordys-net
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
