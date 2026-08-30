@@ -32,7 +32,7 @@ LABEL maintainer="CordysCRM Docker <support@cordyscrm.com>"
 LABEL description="CordysCRM Backend - Spring Boot Production Image"
 
 # Install curl for health checks and tzdata for timezone
-RUN apk add --no-cache curl tzdata bash && \
+RUN apk add --no-cache curl tzdata bash netcat-openbsd && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
     apk del tzdata
@@ -100,14 +100,14 @@ ENTRYPOINT ["sh", "-c", "\
   echo '[INFO] Initializing directories...' && \
   bash /shells/init-directories.sh && \
   echo '[INFO] Waiting for MySQL at ${MYSQL_HOST:-cordys-mysql}:${MYSQL_PORT:-3306}...' && \
-  until sh -c 'echo > /dev/tcp/${MYSQL_HOST:-cordys-mysql}/${MYSQL_PORT:-3306}' 2>/dev/null; do \
+  until nc -z ${MYSQL_HOST:-cordys-mysql} ${MYSQL_PORT:-3306} 2>/dev/null; do \
     echo '[INFO] MySQL not ready, retrying in 3s...'; \
     sleep 3; \
   done && \
   echo '[INFO] MySQL is reachable. Waiting 5s for full initialization...' && \
   sleep 5 && \
   echo '[INFO] Waiting for Redis at ${REDIS_HOST:-cordys-redis}:${REDIS_PORT:-6379}...' && \
-  until sh -c 'echo > /dev/tcp/${REDIS_HOST:-cordys-redis}/${REDIS_PORT:-6379}' 2>/dev/null; do \
+  until nc -z ${REDIS_HOST:-cordys-redis} ${REDIS_PORT:-6379} 2>/dev/null; do \
     echo '[INFO] Redis not ready, retrying in 3s...'; \
     sleep 3; \
   done && \

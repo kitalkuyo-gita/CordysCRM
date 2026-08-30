@@ -112,7 +112,7 @@ services:
     networks:
       - cordys-net
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost --silent && mysql -u root -p\"${MYSQL_ROOT_PASSWORD:-CordysCRM@mysql}\" -e 'SELECT 1' > /dev/null 2>&1"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
       interval: 10s
       timeout: 5s
       retries: 10
