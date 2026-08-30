@@ -94,7 +94,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@vant/use": "^1.6.0"
+      "@vant/use": "^1.6.0",
+      "@vant/popperjs": "^1.3.0"
     }
   }
 }
